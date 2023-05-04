@@ -15,6 +15,8 @@ int ExistingRes[MAXR]; // Existing resources vector
 //.....
 //.....
 
+int maxDemand[N][MAXR];
+
 // end of global variables
 
 /**
@@ -60,14 +62,20 @@ int rm_thread_ended()
 */
 int rm_claim (int claim[])
 {
+    pthread_t tid = pthread_self();
+    for(int i = 0; i < MAXR; i++) {
+        if(claim[i] > ExistingRes[i])
+            return -1;
+        maxDemand[tid][i] = claim[i];
+    }
     int ret = 0;
     return(ret);
 }
 
 /**
  * @brief This function will initialize the necessary structures and variables in
- * the library to do resource management.  is the number of threads and M is
- * the number of resource types. The parameter existing is an array of M
+ * the library to do resource management. N is the number of threads and M is
+ * the number of resource types. The parameter existing is an array of size M
  * @param p_count: Number of threads.
  * @param r_count: Number of resource types.
  * @param r_exist: Array of M (r_count) integers indicating the existing resource 
@@ -81,8 +89,11 @@ int rm_claim (int claim[])
  * maximum number of threads or resources types supported by the library; or 
  * if any specified value is negative, etc.
 */
-int rm_init(int p_count, int r_count, int r_exist[],  int avoid)
+int rm_init(int p_count, int r_count, int r_exist[], int avoid)
 {
+    if(p_count>MAXP | r_count>MAXR)
+        return -1;
+    
     int i;
     int ret = 0;
     
@@ -96,7 +107,7 @@ int rm_init(int p_count, int r_count, int r_exist[],  int avoid)
     
     //....
     // ...
-    return  (ret);
+    return (ret);
 }
 
 /**
