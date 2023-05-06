@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include "rm.h"
+#include <stdbool.h>
 
 
 // global variables
@@ -15,7 +16,14 @@ int ExistingRes[MAXR]; // Existing resources vector
 //.....
 //.....
 
-int maxDemand[N][MAXR];
+// free those after use!!!
+int** maxDemand;
+int** allocation;
+int** need;
+int* available;
+
+pthread_mutex_t mutex;
+pthread_cond_t* cvs;
 
 // end of global variables
 
@@ -100,13 +108,35 @@ int rm_init(int p_count, int r_count, int r_exist[], int avoid)
     DA = avoid;
     N = p_count;
     M = r_count;
-    // initialize (create) resources
-    for (i = 0; i < M; ++i)
-        ExistingRes[i] = r_exist[i];
-    // resources initialized (created)
+    available = (int*)malloc(sizeof(int)*M);
+
+    // initialize mutex lock
+    pthread_mutex_init(&mutex, NULL);
+
+    // initialize condition variables
+    for(int i = 0; i < N; i++)
+        pthread_cond_init(&cvs[i], NULL);
     
-    //....
-    // ...
+    // initialize (create) resources
+    for (i = 0; i < M; ++i) {
+        available[i] = r_exist[i];
+        ExistingRes[i] = r_exist[i];
+    }   
+
+    // initialize maxDemand, allocation and need matrices
+    maxDemand = (int**)malloc(sizeof(int*)*N);
+    allocation = (int**)malloc(sizeof(int*)*N);
+    need = (int**)malloc(sizeof(int*)*N);
+    for(int i = 0; i < N; i++) {
+        maxDemand[i] = (int*)malloc(sizeof(int)*M);
+        allocation[i] = (int*)malloc(sizeof(int)*M);
+        need[i] = (int*)malloc(sizeof(int)*M);
+        for(int j = 0; j < M; j++) {
+            maxDemand[i][j] = 0;
+            allocation[i][j] = 0;
+            need[i][j] = 0;
+        }
+    }
     return (ret);
 }
 
@@ -129,10 +159,54 @@ int rm_init(int p_count, int r_count, int r_exist[], int avoid)
  * number of existing instances. 
 */
 int rm_request (int request[])
-{
-    int ret = 0;
+{   
+    pthread_t tid = pthread_self();
+
+    // ERROR IF REQUEST > MAX NEED
+    for(int i = 0; i < M; i++) {
+        if(request[i] > need[tid][i])
+            return -1;
+    }
+
+    bool avail = true;
+
+    pthread_mutex_lock(&mutex);
+
+    // Wait if requested resources are not available
+    while(!checkAvailability(request)) {
+        pthread_cond_wait(&cvs[tid], &mutex);
+    }
+
+    // Compute the new state
+    int* newAvailable = (int*)malloc(sizeof(int)*M); 
+    int** newAllocation = (int**)malloc(sizeof(int*)*N);
+    int** newNeed = (int**)malloc(sizeof(int*)*N);
+    for(int i = 0; i < M; i++) {
+        newAvailable[i] = available[i] - request[i];
+    }
+    for(int i = 0; i < N; i++) {
+        newAllocation[i] = (int*)malloc(sizeof(int)*M);
+        newNeed[i] = (int*)malloc(sizeof(int)*M);
+        for(int j = 0; j < M; j++) {
+            if(i == tid) {
+                newAllocation[i][j] = allocation[i][j] + request[i];
+                newNeed[i][j] = need[i][j] - request[i];
+            }
+            else {
+                newAllocation[i][j] = allocation[i][j];
+                newNeed[i][j] = need[i][j];
+            }
+        }
+    }
+
+    // Check if the new state is safe
+    if(checkSafe(newAvailable, newNeed, newAllocation)) {
+
+    }
+    else { }
     
-    return(ret);
+    pthread_mutex_unlock(&mutex);
+    return 0;
 }
 
 /**
@@ -183,4 +257,69 @@ int rm_detection()
 void rm_print_state (char hmsg[])
 {
     return;
+}
+
+void printMat(int** mat, int n, int m) {
+    for(int i = 0; i < n; i++) {
+        printf("\n");
+        for(int j = 0; j < m; j++) {
+            printf("%d ", mat[i][j]);
+        }
+        printf("\n");
+    }
+}
+
+// Return true if arr1 <= arr2, false otherwise
+bool arrLessThan(int* arr1, int* arr2, int N) {
+    for(int i = 0; i < N; i++) {
+        if(arr1[i] > arr2[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Check if the current state is safe
+bool checkSafe(int* available, int** need, int** allocation) {
+    int work[M];
+    bool finish[N];
+    for(int i = 0; i < M; i++)
+        work[i] = available[i];
+    for(int i = 0; i < N; i++)
+        finish[i] = 0;
+
+    while(1) {
+        int x = -1;
+        for(int i = 0; i < N; i++) {
+            if(!finish[i] && arrLessThan(need[i], work, M)) {x=i; break;}
+        }
+        if(x==-1) break;
+        else {
+            for(int i = 0; i < M; i++) {
+                work[i] += allocation[x][i];
+                finish[x] = true;
+            }
+        }
+    }
+    for(int i = 0; i < N; i++) {
+        if(!finish[i]) return false;
+    }
+    return true;
+}
+
+bool checkAvailability(int request[]) {
+    for(int i = 0; i < M; i++) {
+        if(request[i] > available[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int main() {
+    int exs[5] = {3, 4, 5, 6, 7};
+    rm_init(3, 5, exs, 1);
+    printMat(maxDemand, 3, 5);
+
+    return 0;
 }
